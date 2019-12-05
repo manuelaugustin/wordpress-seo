@@ -61,7 +61,7 @@ module.exports = function( grunt ) {
 
 			let changelog = grunt.file.read( "./readme.txt" );
 			let newVersion = grunt.option('plugin-version');
-			let newChangelog = getUserInput( "vim").then( newChangelog => {
+			let newChangelog = getUserInput().then( newChangelog => {
 				const versionNumber = new VersionNumber( newVersion );
 				if( !versionNumber.isPatch() ) {
 					const releaseInChangelog = /= \d+\.\d+(\.\d+)? =/g;
