@@ -1,3 +1,30 @@
+const tmp = require( "tmp" );
+const child_process = require( "child_process" );
+const fs = require( "fs" );
+
+async function getUserInput( command = null ) {
+	if ( command === null ) {
+		command = process.env.EDITOR || "nano";
+	}
+	const editorCommands = command.split( " " );
+	const editorExecutable = editorCommands.shift();
+	return new Promise( (resolve, reject) => {
+		const tmpFile = tmp.fileSync();
+		const editorSpawn = child_process.spawn(editorExecutable, [ ...editorCommands, tmpFile.name ], {
+			stdio: 'inherit',
+			detached: true,
+		} );
+		editorSpawn.on('exit', function (e, code) {
+			const content = fs.readFileSync( tmpFile.name, { encoding: "utf8" } );
+			tmpFile.removeCallback();
+			resolve( content );
+		});
+		editorSpawn.on( "error", ( e ) => {
+			reject( e );
+		} );
+	} );
+}
+
 class VersionNumber {
 	constructor( versionNumberString ) {
 		this.versionNumberString = versionNumberString;
@@ -30,26 +57,32 @@ module.exports = function( grunt ) {
 		"update-readme",
 		"Prompts the user for the changelog entries and updates the readme.txt",
 		function() {
+			const done = this.async();
+
 			let changelog = grunt.file.read( "./readme.txt" );
 			let newVersion = grunt.option('plugin-version');
-			let newChangelog = grunt.option('new-changelog');
-			const versionNumber = new VersionNumber( newVersion );
-			if( !versionNumber.isPatch() ) {
-				const releaseInChangelog = /= \d+\.\d+(\.\d+)? =/g;
-				const allReleasesInChangelog = changelog.match( releaseInChangelog );
-				const sanitizedVersionNumbers = allReleasesInChangelog.map( element => new VersionNumber(element.slice( 2, element.length- 2) ) );
-				const highestMajor = Math.max( ...sanitizedVersionNumbers.map( sanitizedVersionNumber => sanitizedVersionNumber.major ) );
-				const lowestMajor = Math.min( ...sanitizedVersionNumbers.map( sanitizedVersionNumber => sanitizedVersionNumber.major ) );
-				if ( highestMajor !== lowestMajor ) {
-					changelog = changelog.replace( new RegExp( "= " + lowestMajor + "(.|\\n)*= Earlier versions =" ), "= Earlier versions =" );
-				} else {
-					const lowestMinor = Math.min( ...sanitizedVersionNumbers.map( sanitizedVersionNumber => sanitizedVersionNumber.minor ) );
-					const lowestVersion = `${lowestMajor}.${lowestMinor}`;
-					changelog = changelog.replace( new RegExp( "= " + lowestVersion + "(.|\\n)*= Earlier versions =" ), "= Earlier versions =" );
+			let newChangelog = getUserInput( "vim").then( newChangelog => {
+				const versionNumber = new VersionNumber( newVersion );
+				if( !versionNumber.isPatch() ) {
+					const releaseInChangelog = /= \d+\.\d+(\.\d+)? =/g;
+					const allReleasesInChangelog = changelog.match( releaseInChangelog );
+					const sanitizedVersionNumbers = allReleasesInChangelog.map( element => new VersionNumber(element.slice( 2, element.length- 2) ) );
+					const highestMajor = Math.max( ...sanitizedVersionNumbers.map( sanitizedVersionNumber => sanitizedVersionNumber.major ) );
+					const lowestMajor = Math.min( ...sanitizedVersionNumbers.map( sanitizedVersionNumber => sanitizedVersionNumber.major ) );
+					if ( highestMajor !== lowestMajor ) {
+						changelog = changelog.replace( new RegExp( "= " + lowestMajor + "(.|\\n)*= Earlier versions =" ), "= Earlier versions =" );
+					} else {
+						const lowestMinor = Math.min( ...sanitizedVersionNumbers.map( sanitizedVersionNumber => sanitizedVersionNumber.minor ) );
+						const lowestVersion = `${lowestMajor}.${lowestMinor}`;
+						changelog = changelog.replace( new RegExp( "= " + lowestVersion + "(.|\\n)*= Earlier versions =" ), "= Earlier versions =" );
+					}
 				}
-			}
-			changelog = changelog.replace( /== Changelog ==/ig, "== Changelog ==\n\n" + newChangelog );
-			// save changelog
+				changelog = changelog.replace( /== Changelog ==/ig, "== Changelog ==\n\n" + newChangelog.trim() );
+
+				grunt.file.write( "./readme.txt", changelog );
+				done();
+			} );
+
 		}
 	);
 };
